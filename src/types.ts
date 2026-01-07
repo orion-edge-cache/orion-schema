@@ -283,3 +283,66 @@ export interface OrionCacheRule {
   scope?: "public" | "private";
   passthrough?: boolean;
 }
+
+// =============================================================================
+// AI PROVIDER TYPES
+// =============================================================================
+
+export type AIProvider = "anthropic" | "openai" | "gemini" | "grok";
+
+export interface AIProviderConfig {
+  provider: AIProvider;
+  apiKey: string;
+  model?: string;
+}
+
+export interface ProviderInfo {
+  name: string;
+  description: string;
+  website: string;
+  requiresApiKey: boolean;
+  models: string[];
+  pricing: string;
+  setupUrl: string;
+}
+
+// =============================================================================
+// CREDENTIAL TYPES
+// =============================================================================
+
+export interface SavedCredentials {
+  aws?: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
+  };
+  fastly?: {
+    apiToken: string;
+  };
+  ai?: {
+    anthropic?: string;
+    openai?: string;
+    gemini?: string;
+    grok?: string;
+  };
+  savedAt: string;
+}
+
+export interface KeyValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+export interface AIKeySource {
+  source: "credentials" | "env" | "user";
+  value: string;
+}
+
+// =============================================================================
+// ENDPOINT TYPES
+// =============================================================================
+
+export interface EndpointReachabilityResult {
+  reachable: boolean;
+  error?: string;
+}

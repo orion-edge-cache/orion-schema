@@ -1,6 +1,6 @@
 {
   "name": "@orion/schema",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "GraphQL schema introspection, analysis, and AI-powered cache config generation",
   "license": "ISC",
   "author": "Preston Macy",
@@ -24,9 +24,13 @@
       "import": "./dist/ai-config-generator.js",
       "types": "./dist/ai-config-generator.d.ts"
     },
-    "./free-ai": {
-      "import": "./dist/free-ai-providers.js",
-      "types": "./dist/free-ai-providers.d.ts"
+    "./credentials": {
+      "import": "./dist/credentials.js",
+      "types": "./dist/credentials.d.ts"
+    },
+    "./endpoint": {
+      "import": "./dist/endpoint.js",
+      "types": "./dist/endpoint.d.ts"
     }
   },
   "scripts": {

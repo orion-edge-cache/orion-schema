@@ -2,7 +2,7 @@
  * AI-Powered Cache Config Generator
  *
  * Uses LLM to analyze GraphQL schema and generate optimal caching configuration.
- * Supports both paid providers (Anthropic, OpenAI) and free providers (Ollama, Groq, HuggingFace).
+ * Supports commercial providers: Anthropic, OpenAI, Gemini, and Grok.
  */
 
 import type {
@@ -12,27 +12,64 @@ import type {
   GeneratedCacheRule,
   OrionCacheConfig,
   OrionCacheRule,
+  AIProvider,
+  AIProviderConfig,
+  ProviderInfo,
 } from "./types.js";
 import { generateSchemaSummary } from "./analyzer.js";
-import { callFreeAI, type FreeAIConfig, isOllamaAvailable, getOllamaModels } from "./free-ai-providers.js";
 
 // =============================================================================
-// AI PROVIDER CONFIGURATION
+// DEFAULT MODELS
 // =============================================================================
 
-export interface AIProviderConfig {
-  provider: "anthropic" | "openai" | "ollama" | "groq" | "huggingface";
-  apiKey?: string | undefined;
-  model?: string | undefined;
-  endpoint?: string | undefined; // For Ollama custom endpoint
-}
-
-const DEFAULT_MODELS = {
+const DEFAULT_MODELS: Record<AIProvider, string> = {
   anthropic: "claude-sonnet-4-20250514",
   openai: "gpt-4o",
-  ollama: "mistral",
-  groq: "mixtral-8x7b-32768",
-  huggingface: "mistralai/Mistral-7B-Instruct-v0.1",
+  gemini: "gemini-2.0-flash",
+  grok: "grok-2",
+};
+
+// =============================================================================
+// PROVIDER INFO
+// =============================================================================
+
+export const PROVIDER_INFO: Record<AIProvider, ProviderInfo> = {
+  anthropic: {
+    name: "Anthropic Claude",
+    description: "Claude 3 family of models - excellent reasoning and analysis",
+    website: "https://www.anthropic.com",
+    requiresApiKey: true,
+    models: ["claude-opus-4-1", "claude-sonnet-4-20250514", "claude-haiku-3-5"],
+    pricing: "Pay-as-you-go",
+    setupUrl: "https://console.anthropic.com/",
+  },
+  openai: {
+    name: "OpenAI GPT",
+    description: "GPT-4 and GPT-4o models - state-of-the-art performance",
+    website: "https://openai.com",
+    requiresApiKey: true,
+    models: ["gpt-4o", "gpt-4-turbo", "gpt-4"],
+    pricing: "Pay-as-you-go",
+    setupUrl: "https://platform.openai.com/account/api-keys",
+  },
+  gemini: {
+    name: "Google Gemini",
+    description: "Google's multimodal AI model - fast and capable",
+    website: "https://ai.google.dev",
+    requiresApiKey: true,
+    models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    pricing: "Free tier + paid",
+    setupUrl: "https://ai.google.dev/",
+  },
+  grok: {
+    name: "xAI Grok",
+    description: "Grok - X's AI model with real-time knowledge",
+    website: "https://x.ai",
+    requiresApiKey: true,
+    models: ["grok-2", "grok-vision-beta"],
+    pricing: "Pay-as-you-go",
+    setupUrl: "https://console.x.ai/",
+  },
 };
 
 // =============================================================================
@@ -147,7 +184,7 @@ async function callAnthropic(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": config.apiKey!,
+      "x-api-key": config.apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
@@ -178,7 +215,7 @@ async function callOpenAI(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey!}`,
+      Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify({
       model,
@@ -194,6 +231,74 @@ async function callOpenAI(
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`OpenAI API error: ${response.status} - ${error}`);
+  }
+
+  const result = await response.json();
+  return result.choices[0].message.content;
+}
+
+async function callGemini(
+  config: AIProviderConfig,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string> {
+  const model = config.model || DEFAULT_MODELS.gemini;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${error}`);
+  }
+
+  const result = await response.json();
+  return result.candidates[0].content.parts[0].text;
+}
+
+async function callGrok(
+  config: AIProviderConfig,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string> {
+  const model = config.model || DEFAULT_MODELS.grok;
+
+  const response = await fetch("https://api.x.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 4096,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Grok API error: ${response.status} - ${error}`);
   }
 
   const result = await response.json();
@@ -278,6 +383,11 @@ export async function generateCacheConfig(
   const { schema, aiConfig, preferences } = options;
 
   try {
+    // Validate API key
+    if (!aiConfig.apiKey) {
+      throw new Error(`${aiConfig.provider} API key is required`);
+    }
+
     // Build prompts
     const systemPrompt = buildSystemPrompt();
     const userPrompt = buildUserPrompt(schema, preferences);
@@ -285,23 +395,21 @@ export async function generateCacheConfig(
     // Call AI provider
     let responseText: string;
 
-    if (aiConfig.provider === "anthropic") {
-      if (!aiConfig.apiKey) throw new Error("Anthropic API key required");
-      responseText = await callAnthropic(aiConfig, systemPrompt, userPrompt);
-    } else if (aiConfig.provider === "openai") {
-      if (!aiConfig.apiKey) throw new Error("OpenAI API key required");
-      responseText = await callOpenAI(aiConfig, systemPrompt, userPrompt);
-    } else if (["ollama", "groq", "huggingface"].includes(aiConfig.provider)) {
-      // Use free AI provider
-      const freeConfig: FreeAIConfig = {
-        provider: aiConfig.provider as "ollama" | "groq" | "huggingface",
-        apiKey: aiConfig.apiKey,
-        endpoint: aiConfig.endpoint,
-        model: aiConfig.model,
-      };
-      responseText = await callFreeAI(freeConfig, systemPrompt, userPrompt);
-    } else {
-      throw new Error(`Unsupported AI provider: ${aiConfig.provider}`);
+    switch (aiConfig.provider) {
+      case "anthropic":
+        responseText = await callAnthropic(aiConfig, systemPrompt, userPrompt);
+        break;
+      case "openai":
+        responseText = await callOpenAI(aiConfig, systemPrompt, userPrompt);
+        break;
+      case "gemini":
+        responseText = await callGemini(aiConfig, systemPrompt, userPrompt);
+        break;
+      case "grok":
+        responseText = await callGrok(aiConfig, systemPrompt, userPrompt);
+        break;
+      default:
+        throw new Error(`Unsupported AI provider: ${aiConfig.provider}`);
     }
 
     // Parse AI response
@@ -469,9 +577,16 @@ export function generateBasicConfig(schema: AnalyzedSchema): OrionCacheConfig {
   };
 }
 
-// =============================================================================
-// PROVIDER UTILITIES
-// =============================================================================
+/**
+ * Get the default model for a provider
+ */
+export function getDefaultModel(provider: AIProvider): string {
+  return DEFAULT_MODELS[provider];
+}
 
-export { isOllamaAvailable, getOllamaModels } from "./free-ai-providers.js";
-export { PROVIDER_INFO } from "./free-ai-providers.js";
+/**
+ * Get all supported providers
+ */
+export function getSupportedProviders(): AIProvider[] {
+  return ["anthropic", "openai", "gemini", "grok"];
+}
