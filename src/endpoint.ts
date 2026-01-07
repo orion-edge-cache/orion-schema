@@ -53,7 +53,7 @@ export async function getGraphQLEndpointFromTerraform(): Promise<
     // Specific path driven by @orion-infra package
     const computeDomain =
       tfstate.outputs?.compute_service?.value?.backend_domain;
-    const protocol = tfstate.outputs?.compute_service?.value?.protocol;
+    const protocol = tfstate.outputs?.compute_service?.value?.backend_protocol;
     const graphqlEndpoint = `${protocol}://${computeDomain}/graphql`;
 
     return graphqlEndpoint || null;
