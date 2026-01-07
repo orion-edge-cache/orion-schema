@@ -19,7 +19,7 @@ import type {
 // =============================================================================
 
 const ORION_CONFIG_DIR = path.join(os.homedir(), ".config/orion");
-const CREDENTIALS_PATH = path.join(ORION_CONFIG_DIR, "credentials.json");
+const DEPLOYMENT_CONFIG_PATH = path.join(ORION_CONFIG_DIR, "deployment-config.json");
 
 /**
  * Environment variable names for each provider (in priority order)
@@ -69,10 +69,10 @@ const KEY_VALIDATION_RULES: Record<
  */
 export async function getSavedCredentials(): Promise<SavedCredentials | null> {
   try {
-    if (!existsSync(CREDENTIALS_PATH)) {
+    if (!existsSync(DEPLOYMENT_CONFIG_PATH)) {
       return null;
     }
-    const content = await readFile(CREDENTIALS_PATH, "utf-8");
+    const content = await readFile(DEPLOYMENT_CONFIG_PATH, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -130,10 +130,10 @@ export async function saveAIKeyToCredentials(
   credentials.savedAt = new Date().toISOString();
 
   // Write file
-  await writeFile(CREDENTIALS_PATH, JSON.stringify(credentials, null, 2));
+  await writeFile(DEPLOYMENT_CONFIG_PATH, JSON.stringify(credentials, null, 2));
 
   // Set restrictive permissions: 0600 (rw-------)
-  await chmod(CREDENTIALS_PATH, 0o600);
+  await chmod(DEPLOYMENT_CONFIG_PATH, 0o600);
 }
 
 /**
