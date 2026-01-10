@@ -1,7 +1,7 @@
 /**
  * Credential Management
  *
- * Functions for managing AI provider credentials stored in ~/.config/orion/credentials.json
+ * Functions for managing AI provider credentials stored in ~/.config/orion/deployment-config.json
  */
 
 import { readFile, writeFile, chmod, mkdir } from "fs/promises";
@@ -65,7 +65,7 @@ const KEY_VALIDATION_RULES: Record<
 // =============================================================================
 
 /**
- * Get saved credentials from ~/.config/orion/credentials.json
+ * Get saved credentials from ~/.config/orion/deployment-config.json
  */
 export async function getSavedCredentials(): Promise<SavedCredentials | null> {
   try {
@@ -80,7 +80,7 @@ export async function getSavedCredentials(): Promise<SavedCredentials | null> {
 }
 
 /**
- * Get AI API key from credentials.json
+ * Get AI API key from deployment-config.json
  */
 export async function getAIKeyFromCredentials(
   provider: AIProvider
@@ -107,7 +107,7 @@ export function getAIKeyFromEnv(provider: AIProvider): string | null {
 }
 
 /**
- * Save AI API key to credentials.json
+ * Save AI API key to deployment-config.json
  * Always overwrites existing key, sets file permissions to 0600
  */
 export async function saveAIKeyToCredentials(
