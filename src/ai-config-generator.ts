@@ -173,51 +173,39 @@ Respond with valid JSON only.`;
 // AI API CALLS
 // =============================================================================
 
-async function callAnthropic(
-  config: AIProviderConfig,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const model = config.model || DEFAULT_MODELS.anthropic;
+interface ProviderApiConfig {
+  getEndpoint: (model: string, apiKey: string) => string;
+  getHeaders: (apiKey: string) => Record<string, string>;
+  buildBody: (model: string, systemPrompt: string, userPrompt: string) => object;
+  extractResponse: (result: Record<string, unknown>) => string;
+  errorPrefix: string;
+}
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
+const PROVIDER_API_CONFIGS: Record<AIProvider, ProviderApiConfig> = {
+  anthropic: {
+    getEndpoint: () => "https://api.anthropic.com/v1/messages",
+    getHeaders: (apiKey) => ({
       "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
+    }),
+    buildBody: (model, systemPrompt, userPrompt) => ({
       model,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Anthropic API error: ${response.status} - ${error}`);
-  }
-
-  const result = await response.json();
-  return result.content[0].text;
-}
-
-async function callOpenAI(
-  config: AIProviderConfig,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const model = config.model || DEFAULT_MODELS.openai;
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
+    extractResponse: (result) =>
+      (result as { content: Array<{ text: string }> }).content[0]!.text,
+    errorPrefix: "Anthropic",
+  },
+  openai: {
+    getEndpoint: () => "https://api.openai.com/v1/chat/completions",
+    getHeaders: (apiKey) => ({
       "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
+      Authorization: `Bearer ${apiKey}`,
+    }),
+    buildBody: (model, systemPrompt, userPrompt) => ({
       model,
       messages: [
         { role: "system", content: systemPrompt },
@@ -226,83 +214,81 @@ async function callOpenAI(
       max_tokens: 4096,
       temperature: 0.7,
     }),
-  });
+    extractResponse: (result) =>
+      (result as { choices: Array<{ message: { content: string } }> }).choices[0]!
+        .message.content,
+    errorPrefix: "OpenAI",
+  },
+  gemini: {
+    getEndpoint: (model, apiKey) =>
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    getHeaders: () => ({ "Content-Type": "application/json" }),
+    buildBody: (_model, systemPrompt, userPrompt) => ({
+      contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+    }),
+    extractResponse: (result) =>
+      (
+        result as {
+          candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+        }
+      ).candidates[0]!.content.parts[0]!.text,
+    errorPrefix: "Gemini",
+  },
+  grok: {
+    getEndpoint: () => "https://api.x.ai/v1/chat/completions",
+    getHeaders: (apiKey) => ({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    }),
+    buildBody: (model, systemPrompt, userPrompt) => ({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      max_tokens: 4096,
+      temperature: 0.7,
+    }),
+    extractResponse: (result) =>
+      (result as { choices: Array<{ message: { content: string } }> }).choices[0]!
+        .message.content,
+    errorPrefix: "Grok",
+  },
+};
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenAI API error: ${response.status} - ${error}`);
-  }
-
-  const result = await response.json();
-  return result.choices[0].message.content;
-}
-
-async function callGemini(
+/**
+ * Call an AI provider's API with unified error handling
+ */
+async function callAIProvider(
+  provider: AIProvider,
   config: AIProviderConfig,
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const model = config.model || DEFAULT_MODELS.gemini;
+  const providerConfig = PROVIDER_API_CONFIGS[provider];
+  const model = config.model || DEFAULT_MODELS[provider];
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
+    providerConfig.getEndpoint(model, config.apiKey),
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-        },
-      }),
+      headers: providerConfig.getHeaders(config.apiKey),
+      body: JSON.stringify(
+        providerConfig.buildBody(model, systemPrompt, userPrompt)
+      ),
     }
   );
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Gemini API error: ${response.status} - ${error}`);
+    throw new Error(
+      `${providerConfig.errorPrefix} API error: ${response.status} - ${error}`
+    );
   }
 
   const result = await response.json();
-  return result.candidates[0].content.parts[0].text;
-}
-
-async function callGrok(
-  config: AIProviderConfig,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  const model = config.model || DEFAULT_MODELS.grok;
-
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 4096,
-      temperature: 0.7,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Grok API error: ${response.status} - ${error}`);
-  }
-
-  const result = await response.json();
-  return result.choices[0].message.content;
+  return providerConfig.extractResponse(result);
 }
 
 // =============================================================================
@@ -393,24 +379,12 @@ export async function generateCacheConfig(
     const userPrompt = buildUserPrompt(schema, preferences);
 
     // Call AI provider
-    let responseText: string;
-
-    switch (aiConfig.provider) {
-      case "anthropic":
-        responseText = await callAnthropic(aiConfig, systemPrompt, userPrompt);
-        break;
-      case "openai":
-        responseText = await callOpenAI(aiConfig, systemPrompt, userPrompt);
-        break;
-      case "gemini":
-        responseText = await callGemini(aiConfig, systemPrompt, userPrompt);
-        break;
-      case "grok":
-        responseText = await callGrok(aiConfig, systemPrompt, userPrompt);
-        break;
-      default:
-        throw new Error(`Unsupported AI provider: ${aiConfig.provider}`);
-    }
+    const responseText = await callAIProvider(
+      aiConfig.provider,
+      aiConfig,
+      systemPrompt,
+      userPrompt
+    );
 
     // Parse AI response
     const aiResponse = parseAIResponse(responseText);
